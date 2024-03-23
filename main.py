@@ -11,8 +11,7 @@ def create_db_structure():
         id SERIAL PRIMARY KEY,
         first_name TEXT NOT NULL,
         last_name TEXT NOT NULL,
-        email TEXT UNIQUE,
-        phone TEXT UNIQUE
+        email TEXT UNIQUE
     );
     """)
 
@@ -20,7 +19,7 @@ def create_db_structure():
     CREATE TABLE IF NOT EXISTS phones (
         id SERIAL PRIMARY KEY,
         client_id INT REFERENCES clients(id),
-        phone_number TEXT
+        phone_number TEXT UNIQUE
     );
     """)
     conn.commit()
@@ -28,11 +27,11 @@ def create_db_structure():
 
 
 # Функция для добавления нового клиента в базу данных
-def add_client(first_name, last_name, email=None, phone=None):
+def add_client(first_name, last_name, email=None):
     cur = conn.cursor()
-    cur.execute(f"""
-    INSERT INTO clients (first_name, last_name, email, phone)
-    VALUES (%s, %s, %s, %s)""", (first_name, last_name, email, phone))
+    cur.execute("""
+    INSERT INTO clients (first_name, last_name, email)
+    VALUES (%s, %s, %s)""", (first_name, last_name, email))
     conn.commit()
     cur.close()
 
@@ -40,7 +39,7 @@ def add_client(first_name, last_name, email=None, phone=None):
 # Функция для добавления телефона для существующего клиента
 def add_phone(client_id, phone_number):
     cur = conn.cursor()
-    cur.execute("""UPDATE clients SET phone = %s WHERE id = %s""", (phone_number, client_id))
+    cur.execute("INSERT INTO phones (client_id, phone_number) VALUES (%s, %s)", (client_id, phone_number))
     conn.commit()
     cur.close()
 
@@ -59,12 +58,11 @@ def update_client(client_id, **kwargs):
                 cur.execute("INSERT INTO phones (client_id, phone_number) VALUES (%s, %s)", (client_id, phone_number))
         else:
             updates.append((key, value))
-
     if updates:
-        set_values = ', '.join([f'{col} = %s' for col, _ in updates])
+        set_values = ', '.join([col + ' = %s' for col, _ in updates])
         update_values = [values for values in updates]
         update_values.append(client_id)
-        cur.execute(f'UPDATE clients SET {set_values} WHERE id = %s', update_values)
+        cur.execute('UPDATE clients SET {} WHERE id = %s'.format(set_values), update_values)
     conn.commit()
     cur.close()
 
@@ -83,13 +81,38 @@ def delete_phone(client_id):
 # Функция для удаления существующего клиента
 def delete_client(client_id):
     cur = conn.cursor()
-    cur.execute("""DELETE FROM clients WHERE id = %s""", (client_id,))
-    conn.commit()
+    # Проверка наличия привязанных номеров
+    cur.execute("SELECT COUNT(*) FROM phones WHERE client_id = %s", (client_id,))
+    num_phones = cur.fetchone()[0]
+    # Если у клиента нет привязанных номеров телефонов, можно удалить его
+    if num_phones == 0:
+        cur.execute("DELETE FROM clients WHERE id = %s", (client_id,))
+        conn.commit()
+        print("Клиент успешно удален")
+    else:
+        print("Нельзя удалить клиента, у которого есть привязанные номера телефонов")
     cur.close()
+
+
+# Функция для поиска клиента по любой комбинации параметров
+def search_client(**kwargs):
+    cur = conn.cursor()
+    query = "SELECT DISTINCT c.* FROM clients c LEFT JOIN phones p ON c.id = p.client_id WHERE "
+    params = []
+    for key, value in kwargs.items():
+        if key == "phone_number":
+            query += "p.phone_number = %s "
+        else:
+            query += f"c.{key} = %s "
+        params.append(value)
+    cur.execute(query, params)
+    result = cur.fetchall()
+    return result
 
 
 if __name__ == '__main__':
     create_db_structure()
-    # add_client('Данила', 'Иванов', 'ema1i31l12153@ya.ru', '13313234-4536-7890')
-    # add_phone(8, '123-456-7890')
-    update_client(14, phone_numbers=['123-456-7890', '234-567-8901'])
+    # add_client('Данила', 'Иванов', 'ema1iee31l12153@ya.ru')
+    # add_phone(15, '12443-456-7890')
+    # update_client(3, phone_numbers=['123-456-7890', '234-567-8901'])
+    print(search_client(phone_number='12443-456-7890'))
